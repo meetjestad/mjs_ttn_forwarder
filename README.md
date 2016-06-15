@@ -16,3 +16,11 @@ forget to set it as executable):
 
 In this script, fill in the AppEUI and Access key as output by `ttnctl
 applications`.
+
+Dependencies
+------------
+This needs the following dependencies:
+
+	pip install paho-mqtt requests
+
+(Run under sudo to install system-wide)
