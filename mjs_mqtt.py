@@ -58,8 +58,6 @@ def on_message(client, userdata, msg):
         def unpack_coord(data):
             return struct.unpack('>i', b'\x00' + data[:3])[0] / 32768.0
 
-        print(payload)
-
         message_payload.update({
             'latitude': unpack_coord(payload[:3]),
             'longitude': unpack_coord(payload[3:6]),
