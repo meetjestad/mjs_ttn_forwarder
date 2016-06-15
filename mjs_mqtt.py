@@ -51,7 +51,7 @@ def on_message(client, userdata, msg):
             logging.warn('Invalid packet received with length {}: {}'.format(len(payload), payload))
             return
 
-        # Convert id to integer so backend does not have to do this       
+        # Convert id to integer so backend does not have to do this
         message_payload['dev_eui'] = int(message_payload['dev_eui'], 16)
 
         # Latitude/Longitude are packed as 3-byte fixed point
@@ -59,7 +59,7 @@ def on_message(client, userdata, msg):
             return struct.unpack('>i', b'\x00' + data[:3])[0] / 32768.0
 
         print(payload)
-        
+
         message_payload.update({
             'latitude': unpack_coord(payload[:3]),
             'longitude': unpack_coord(payload[3:6]),
@@ -70,7 +70,7 @@ def on_message(client, userdata, msg):
         request_params = {
             k: v.format(**message_payload) for (k, v) in TARGET_PARAMS.items()
         }
-        
+
         r = requests.get(TARGET_URL, params=request_params)
 
     except json.JSONDecodeError:
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     ttn_host = os.environ.get('TTN_HOST', 'staging.thethingsnetwork.org')
     ca_cert_path = os.environ.get('TTN_CA_CERT_PATH', 'mqtt-ca.pem')
 
-    args = parser.parse_args()    
+    args = parser.parse_args()
     logging.basicConfig(level=args.loglevel)
 
     connect(app_eui=app_eui, access_key=access_key, host=ttn_host, ca_cert_path=ca_cert_path)
