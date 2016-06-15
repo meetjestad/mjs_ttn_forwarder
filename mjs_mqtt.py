@@ -67,11 +67,12 @@ def on_message(client, userdata, msg):
             'humidity': (struct.unpack('>h', payload[7:9])[0] & 0xFFF) / 16.0,
         })
 
-        request_params = {
-            k: v.format(**message_payload) for (k, v) in TARGET_PARAMS.items()
-        }
+        if TARGET_URL != "":
+            request_params = {
+                k: v.format(**message_payload) for (k, v) in TARGET_PARAMS.items()
+            }
 
-        r = requests.get(TARGET_URL, params=request_params)
+            r = requests.get(TARGET_URL, params=request_params)
 
     except json.JSONDecodeError:
         logging.warn('Received non-JSON message payload')
