@@ -47,35 +47,43 @@ def on_message(client, userdata, msg):
         message_payload = json.loads(msg.payload.decode('utf8'))
         payload = base64.b64decode(message_payload.get('payload', ''))
 
-        if len(payload) != 9:
-            logging.warn('Invalid packet received with length {}: {}'.format(len(payload), payload))
-            return
+    # python2 uses ValueError and perhaps others, python3 uses JSONDecodeError
+    except Exception as e:
+        logging.warn('Error parsing JSON payload')
+        logging.warn(e)
 
-        # Convert id to integer so backend does not have to do this
-        message_payload['dev_eui'] = int(message_payload['dev_eui'], 16)
+    try:
+        process_data(message_payload, payload)
+    except Exception as e:
+        logging.warn('Error processing packet')
+        logging.warn(e)
 
-        # Latitude/Longitude are packed as 3-byte fixed point
-        def unpack_coord(data):
-            return struct.unpack('>i', b'\x00' + data[:3])[0] / 32768.0
+# Latitude/Longitude are packed as 3-byte fixed point
+def unpack_coord(data):
+    return struct.unpack('>i', b'\x00' + data[:3])[0] / 32768.0
 
-        message_payload.update({
-            'latitude': unpack_coord(payload[:3]),
-            'longitude': unpack_coord(payload[3:6]),
-            'temperature': (struct.unpack('>h', payload[6:8])[0] >> 4) / 16.0,
-            'humidity': (struct.unpack('>h', payload[7:9])[0] & 0xFFF) / 16.0,
-        })
+def process_data(message_payload, payload):
+    if len(payload) != 9:
+        logging.warn('Invalid packet received with length {}: {}'.format(len(payload), payload))
+        return
 
-        if TARGET_URL != "":
-            request_params = {
-                k: v.format(**message_payload) for (k, v) in TARGET_PARAMS.items()
-            }
+    # Convert id to integer so backend does not have to do this
+    message_payload['dev_eui'] = int(message_payload['dev_eui'], 16)
 
-            r = requests.get(TARGET_URL, params=request_params)
+    message_payload.update({
+        'latitude': unpack_coord(payload[:3]),
+        'longitude': unpack_coord(payload[3:6]),
+        'temperature': (struct.unpack('>h', payload[6:8])[0] >> 4) / 16.0,
+        'humidity': (struct.unpack('>h', payload[7:9])[0] & 0xFFF) / 16.0,
+    })
 
-    except json.JSONDecodeError:
-        logging.warn('Received non-JSON message payload')
-    except IndexError:
-        logging.warn('No metadata on message payload')
+    if TARGET_URL != "":
+        request_params = {
+            k: v.format(**message_payload) for (k, v) in TARGET_PARAMS.items()
+        }
+
+        r = requests.get(TARGET_URL, params=request_params)
+
 
 def connect(app_eui=None, access_key=None, ca_cert_path=None, host=None):
     client = mqtt.Client()
