@@ -53,7 +53,8 @@ def on_message(client, userdata, msg):
         logging.warn(e)
 
     try:
-        process_data(message_payload, payload)
+        if message_payload["port"] == 10:
+            process_data(message_payload, payload)
     except Exception as e:
         logging.warn('Error processing packet')
         logging.warn(e)
