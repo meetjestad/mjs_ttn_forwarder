@@ -21,7 +21,7 @@ parser.add_argument(
 TARGET_URL = os.environ.get('MJS_TARGET', 'http://meetjestad.net/beta/add.php')
 TARGET_PARAMS = {
     'id': '{dev_eui}',
-    'timestamp': '{metadata[0][gateway_time]}',
+    'timestamp': '{metadata[0][server_time]}',
     'datarate': '{metadata[0][datarate]}',
     'rssi': '{metadata[0][rssi]}',
     'lsnr': '{metadata[0][lsnr]}',
