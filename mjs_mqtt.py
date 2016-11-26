@@ -1,6 +1,7 @@
 import argparse
 import base64
 import datetime
+import time
 import json
 import logging
 import os
@@ -28,14 +29,11 @@ def on_message(client, userdata, msg):
     db = userdata['db']
 
     try:
-        #  Metadata:
-        #  {"frequency":868.3,"datarate":"SF7BW125","codingrate":"4/5","gateway_timestamp":3858297787,
-        #  "gateway_time":"2016-06-10T08:46:51.138189Z","channel":1,"server_time":"2016-06-10T08:46:48.75436891Z",
-        #  "rssi":-35,"lsnr":9.2,"rfchain":1,"crc":1,"modulation":"LORA","gateway_eui":"1DEE0B64B020EEC4",
-        #  "altitude":0,"longitude":0,"latitude":0}
-        message_payload = json.loads(msg.payload.decode('utf8'))
-        payload = base64.b64decode(message_payload.get('payload', ''))
+        msg_as_string = msg.payload.decode('utf8')
+        message_id = execute_query(db, "INSERT INTO sensors_message SET message = %s", (msg_as_string,))
 
+        message_payload = json.loads(msg_as_string)
+        payload = base64.b64decode(message_payload.get('payload', ''))
     # python2 uses ValueError and perhaps others, python3 uses JSONDecodeError
     except Exception as e:
         logging.warn('Error parsing JSON payload')
@@ -43,7 +41,7 @@ def on_message(client, userdata, msg):
 
     try:
         if message_payload["port"] == 10:
-            process_data(db, message_payload, payload)
+            process_data(db, message_id, message_payload, payload)
     except Exception as e:
         logging.warn('Error processing packet')
         logging.warn(e)
@@ -58,6 +56,7 @@ def execute_query(db, query, args):
         cursor.execute(query, args)
         cursor.close()
         db.commit()
+        return cursor.lastrowid
     except Exception as e:
         logging.warn('Query failed: {}'.format(e))
 
@@ -65,7 +64,7 @@ def execute_query(db, query, args):
 def unpack_coord(data):
     return struct.unpack('>i', b'\x00' + data[:3])[0] / 32768.0
 
-def process_data(db, message_payload, payload):
+def process_data(db, message_id, message_payload, payload):
     if len(payload) != 9:
         logging.warn('Invalid packet received with length {}: {}'.format(len(payload), payload))
         return
@@ -76,12 +75,10 @@ def process_data(db, message_payload, payload):
     data['temperature'] = (struct.unpack('>h', payload[6:8])[0] >> 4) / 16.0
     data['humidity'] = (struct.unpack('>h', payload[7:9])[0] & 0xFFF) / 16.0
 
-    query = """INSERT INTO `gpstest` SET 
-               `id` = %s,
+    query = """INSERT INTO `sensors_measurement` SET 
+               `station_id` = %s,
+               `message_id` = %s,
                `timestamp` = %s,
-               `datarate` = %s,
-               `rssi` = %s,
-               `lsnr` = %s,
                `latitude` = %s,
                `longitude` = %s,
                `temperature` = %s,
@@ -89,10 +86,8 @@ def process_data(db, message_payload, payload):
             """
 
     args = (int(message_payload['dev_eui'], 16),
-            message_payload['metadata'][0]['server_time'],
-            message_payload['metadata'][0]['datarate'],
-            message_payload['metadata'][0]['rssi'],
-            message_payload['metadata'][0]['lsnr'],
+            message_id,
+            time.strftime('%Y-%m-%d %H:%M:%S'),
             data['latitude'],
             data['longitude'],
             data['temperature'],
