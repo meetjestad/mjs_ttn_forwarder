@@ -8,6 +8,7 @@ import paho.mqtt.client as mqtt
 import requests
 import ssl
 import struct
+import MySQLdb
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -18,25 +19,13 @@ parser.add_argument(
     '-v', '--verbose', action="store_const", dest="loglevel", const=logging.INFO,
 )
 
-TARGET_URL = os.environ.get('MJS_TARGET', 'http://meetjestad.net/beta/add.php')
-TARGET_PARAMS = {
-    'id': '{dev_eui}',
-    'timestamp': '{metadata[0][server_time]}',
-    'datarate': '{metadata[0][datarate]}',
-    'rssi': '{metadata[0][rssi]}',
-    'lsnr': '{metadata[0][lsnr]}',
-    'lat': '{latitude}',
-    'lon': '{longitude}',
-    'tmp': '{temperature}',
-    'hum': '{humidity}',
-}
-
 def on_connect(client, userdata, flags, rc):
     logging.info('Connected to host, subscribing to uplink messages')
     client.subscribe('+/devices/+/up')
 
 def on_message(client, userdata, msg):
     logging.debug('Received message {}'.format(str(msg.payload)))
+    db = userdata['db']
 
     try:
         #  Metadata:
@@ -54,40 +43,66 @@ def on_message(client, userdata, msg):
 
     try:
         if message_payload["port"] == 10:
-            process_data(message_payload, payload)
+            process_data(db, message_payload, payload)
     except Exception as e:
         logging.warn('Error processing packet')
         logging.warn(e)
+
+def execute_query(db, query, args):
+    logging.debug("Executing query: {} with args: {}".format(query, args))
+
+    try:
+        # Check if the connection is alive, reconnect if needed
+        db.ping(True)
+        cursor = db.cursor()
+        cursor.execute(query, args)
+        cursor.close()
+        db.commit()
+    except Exception as e:
+        logging.warn('Query failed: {}'.format(e))
 
 # Latitude/Longitude are packed as 3-byte fixed point
 def unpack_coord(data):
     return struct.unpack('>i', b'\x00' + data[:3])[0] / 32768.0
 
-def process_data(message_payload, payload):
+def process_data(db, message_payload, payload):
     if len(payload) != 9:
         logging.warn('Invalid packet received with length {}: {}'.format(len(payload), payload))
         return
 
-    # Convert id to integer so backend does not have to do this
-    message_payload['dev_eui'] = int(message_payload['dev_eui'], 16)
+    data = {}
+    data['latitude'] = unpack_coord(payload[:3])
+    data['longitude'] =unpack_coord(payload[3:6])
+    data['temperature'] = (struct.unpack('>h', payload[6:8])[0] >> 4) / 16.0
+    data['humidity'] = (struct.unpack('>h', payload[7:9])[0] & 0xFFF) / 16.0
 
-    message_payload.update({
-        'latitude': unpack_coord(payload[:3]),
-        'longitude': unpack_coord(payload[3:6]),
-        'temperature': (struct.unpack('>h', payload[6:8])[0] >> 4) / 16.0,
-        'humidity': (struct.unpack('>h', payload[7:9])[0] & 0xFFF) / 16.0,
-    })
+    query = """INSERT INTO `gpstest` SET 
+               `id` = %s,
+               `timestamp` = %s,
+               `datarate` = %s,
+               `rssi` = %s,
+               `lsnr` = %s,
+               `latitude` = %s,
+               `longitude` = %s,
+               `temperature` = %s,
+               `humidity` = %s
+            """
 
-    if TARGET_URL != "":
-        request_params = {
-            k: v.format(**message_payload) for (k, v) in TARGET_PARAMS.items()
-        }
+    args = (int(message_payload['dev_eui'], 16),
+            message_payload['metadata'][0]['server_time'],
+            message_payload['metadata'][0]['datarate'],
+            message_payload['metadata'][0]['rssi'],
+            message_payload['metadata'][0]['lsnr'],
+            data['latitude'],
+            data['longitude'],
+            data['temperature'],
+            data['humidity'],
+           )
 
-        r = requests.get(TARGET_URL, params=request_params)
+    execute_query(db, query, args)
 
-
-def connect(app_eui=None, access_key=None, ca_cert_path=None, host=None):
-    client = mqtt.Client()
+def mqtt_connect(db, app_eui=None, access_key=None, ca_cert_path=None, host=None):
+    client = mqtt.Client(userdata={'db': db})
     client.on_connect = on_connect
     client.on_message = on_message
 
@@ -110,13 +125,29 @@ def connect(app_eui=None, access_key=None, ca_cert_path=None, host=None):
     client.connect(host, port=port)
     client.loop_forever()
 
+def test_message(db):
+    msg = mqtt.MQTTMessage()
+    msg.payload = """{"payload":"AAAAAAAAAFXU","port":10,"counter":20,"dev_eui":"0000000000000016","metadata":[{"frequency":868.1,"datarate":"SF9BW125","codingrate":"4/5","gateway_timestamp":2053707724,"channel":0,"server_time":"2016-11-26T18:09:17.938315364Z","rssi":-120,"lsnr":-10.2,"rfchain":1,"crc":1,"modulation":"LORA","gateway_eui":"1DEE0B64B020EEC4","altitude":0,"longitude":5.37687,"latitude":52.16273}]}"""
+    on_message(None, {'db': db}, msg)
+
 if __name__ == "__main__":
     app_eui = os.environ.get('TTN_APP_EUI')
     access_key = os.environ.get('TTN_ACCESS_KEY')
     ttn_host = os.environ.get('TTN_HOST', 'staging.thethingsnetwork.org')
     ca_cert_path = os.environ.get('TTN_CA_CERT_PATH', 'mqtt-ca.pem')
 
+    mysql_host = os.environ.get('MYSQL_HOST', 'localhost')
+    mysql_user = os.environ.get('MYSQL_USER')
+    mysql_pwd = os.environ.get('MYSQL_PWD')
+    mysql_db = os.environ.get('MYSQL_DB')
+
     args = parser.parse_args()
     logging.basicConfig(level=args.loglevel)
 
-    connect(app_eui=app_eui, access_key=access_key, host=ttn_host, ca_cert_path=ca_cert_path)
+    # Open database connection
+    db = MySQLdb.connect(mysql_host, mysql_user, mysql_pwd, mysql_db)
+
+    #test_message(db)
+
+    mqtt_connect(db=db, app_eui=app_eui, access_key=access_key, host=ttn_host, ca_cert_path=ca_cert_path)
+
