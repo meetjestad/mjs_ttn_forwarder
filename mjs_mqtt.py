@@ -30,7 +30,8 @@ def on_message(client, userdata, msg):
 
     try:
         msg_as_string = msg.payload.decode('utf8')
-        message_id = execute_query(db, "INSERT INTO sensors_message SET message = %s", (msg_as_string,))
+        now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        message_id = execute_query(db, "INSERT INTO sensors_message SET timestamp = %s, message = %s", (now, msg_as_string))
 
         message_payload = json.loads(msg_as_string)
         payload = base64.b64decode(message_payload.get('payload', ''))
