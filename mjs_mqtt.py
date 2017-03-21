@@ -41,8 +41,7 @@ def on_message(client, userdata, msg):
         logging.warn(e)
 
     try:
-        if message_payload["port"] == 10:
-            process_data(db, message_id, message_payload, payload)
+        process_data(db, message_id, message_payload, payload)
     except Exception as e:
         logging.warn('Error processing packet')
         logging.warn(e)
@@ -66,8 +65,12 @@ def unpack_coord(data):
     return struct.unpack('>i', b'\x00' + data[:3])[0] / 32768.0
 
 def process_data(db, message_id, message_payload, payload):
-    if len(payload) != 9:
-        logging.warn('Invalid packet received with length {}: {}'.format(len(payload), payload))
+    if message_payload["port"] == 10 and (len(payload) < 9 or len(payload) > 11):
+        logging.warn('Invalid packet received with length {}'.format(len(payload)))
+        return
+
+    if message_payload["port"] != 10:
+        logging.warn('Ignoring message with unknown port: {}'.format(message_payload["port"]))
         return
 
     data = {}
@@ -75,6 +78,16 @@ def process_data(db, message_id, message_payload, payload):
     data['longitude'] =unpack_coord(payload[3:6])
     data['temperature'] = (struct.unpack('>h', payload[6:8])[0] >> 4) / 16.0
     data['humidity'] = (struct.unpack('>h', payload[7:9])[0] & 0xFFF) / 16.0
+    if message_payload["port"] == 10:
+        if len(payload) >= 10:
+            data['supply'] = 1 + struct.unpack('B', payload[9])[0] / 100.0
+        else:
+            data['supply'] = None
+
+        if len(payload) >= 11:
+            data['battery'] = 1 + struct.unpack('B', payload[10])[0] / 50.0
+        else:
+            data['battery'] = None
 
     query = """INSERT INTO `sensors_measurement` SET 
                `station_id` = %s,
@@ -83,7 +96,9 @@ def process_data(db, message_id, message_payload, payload):
                `latitude` = %s,
                `longitude` = %s,
                `temperature` = %s,
-               `humidity` = %s
+               `humidity` = %s,
+               `battery` = %s,
+               `supply` = %s
             """
 
     station_id = int(message_payload['dev_eui'], 16)
@@ -96,6 +111,8 @@ def process_data(db, message_id, message_payload, payload):
             data['longitude'],
             data['temperature'],
             data['humidity'],
+            data['battery'],
+            data['supply'],
            )
 
     measurement_id = execute_query(db, query, args)
