@@ -86,8 +86,10 @@ def process_data(db, message_id, message_payload, payload):
                `humidity` = %s
             """
 
+    station_id = int(message_payload['dev_eui'], 16)
     now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    args = (int(message_payload['dev_eui'], 16),
+
+    args = (station_id,
             message_id,
             now,
             data['latitude'],
@@ -96,6 +98,12 @@ def process_data(db, message_id, message_payload, payload):
             data['humidity'],
            )
 
+    measurement_id = execute_query(db, query, args)
+
+    # Record most recent measurement in sensors_station table
+    query = """INSERT INTO `sensors_station` (`id`, `last_measurement`, `last_timestamp`) VALUES (%s, %s, %s)
+               ON DUPLICATE KEY UPDATE `last_measurement` = %s, `last_timestamp` = %s"""
+    args = (station_id, measurement_id, now, measurement_id, now)
     execute_query(db, query, args)
 
 def mqtt_connect(db, app_eui=None, access_key=None, ca_cert_path=None, host=None):
