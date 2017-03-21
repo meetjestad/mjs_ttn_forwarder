@@ -86,9 +86,10 @@ def process_data(db, message_id, message_payload, payload):
                `humidity` = %s
             """
 
+    now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
     args = (int(message_payload['dev_eui'], 16),
             message_id,
-            time.strftime('%Y-%m-%d %H:%M:%S'),
+            now,
             data['latitude'],
             data['longitude'],
             data['temperature'],
