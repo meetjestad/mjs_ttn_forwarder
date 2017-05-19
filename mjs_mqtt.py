@@ -10,6 +10,7 @@ import requests
 import ssl
 import struct
 import MySQLdb
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -34,7 +35,7 @@ def on_message(client, userdata, msg):
         message_id = execute_query(db, "INSERT INTO sensors_message SET timestamp = %s, message = %s", (now, msg_as_string))
 
         message_payload = json.loads(msg_as_string)
-        payload = base64.b64decode(message_payload.get('payload', ''))
+        payload = base64.b64decode(message_payload.get('payload_raw', ''))
     # python2 uses ValueError and perhaps others, python3 uses JSONDecodeError
     except Exception as e:
         logging.warn('Error parsing JSON payload')
@@ -101,7 +102,8 @@ def process_data(db, message_id, message_payload, payload):
                `supply` = %s
             """
 
-    station_id = int(message_payload['dev_eui'], 16)
+    # TODO: Preserve full id?
+    station_id = str(int(message_payload['hardware_serial'], 16))
     now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
     args = (station_id,
@@ -123,17 +125,17 @@ def process_data(db, message_id, message_payload, payload):
     args = (station_id, measurement_id, now, measurement_id, now)
     execute_query(db, query, args)
 
-def mqtt_connect(db, app_eui=None, access_key=None, ca_cert_path=None, host=None):
+def mqtt_connect(db, app_id=None, access_key=None, ca_cert_path=None, host=None):
     client = mqtt.Client(userdata={'db': db})
     client.on_connect = on_connect
     client.on_message = on_message
 
     port = 1883
 
-    if app_eui is not None and access_key is not None:
-        client.username_pw_set(app_eui, password=access_key)
+    if app_id is not None and access_key is not None:
+        client.username_pw_set(app_id, password=access_key)
     else:
-        logging.warn('No App EUI or Access key set')
+        logging.warn('No App ID or Access key set')
 
     if ca_cert_path:
         if not os.path.exists(ca_cert_path):
@@ -149,13 +151,13 @@ def mqtt_connect(db, app_eui=None, access_key=None, ca_cert_path=None, host=None
 
 def test_message(db):
     msg = mqtt.MQTTMessage()
-    msg.payload = """{"payload":"AAAAAAAAAFXU","port":10,"counter":20,"dev_eui":"0000000000000016","metadata":[{"frequency":868.1,"datarate":"SF9BW125","codingrate":"4/5","gateway_timestamp":2053707724,"channel":0,"server_time":"2016-11-26T18:09:17.938315364Z","rssi":-120,"lsnr":-10.2,"rfchain":1,"crc":1,"modulation":"LORA","gateway_eui":"1DEE0B64B020EEC4","altitude":0,"longitude":5.37687,"latitude":52.16273}]}"""
+    msg.payload = """{"app_id":"meet-je-stad","dev_id":"50","hardware_serial":"0000000000000032","port":10,"counter":0,"is_retry":true,"payload_raw":"AAAAAAAAEZP4580=","metadata":{"time":"2017-03-21T10:42:18.464710851Z","frequency":867.1,"modulation":"LORA","data_rate":"SF9BW125","coding_rate":"4/5","gateways":[{"gtw_id":"eui-1dee0b64b020eec4","timestamp":1862821700,"time":"","channel":3,"rssi":-120,"snr":-8.2},{"gtw_id":"eui-1dee1cc11cba7539","timestamp":3425054892,"time":"","channel":3,"rssi":-97,"snr":12.8},{"gtw_id":"eui-1dee18fc1c9d19d8","timestamp":2278897900,"time":"","channel":3,"rssi":-23,"snr":13.5}]}}"""
     on_message(None, {'db': db}, msg)
 
 if __name__ == "__main__":
-    app_eui = os.environ.get('TTN_APP_EUI')
+    app_id = os.environ.get('TTN_APP_ID')
     access_key = os.environ.get('TTN_ACCESS_KEY')
-    ttn_host = os.environ.get('TTN_HOST', 'staging.thethingsnetwork.org')
+    ttn_host = os.environ.get('TTN_HOST', 'eu.thethings.network')
     ca_cert_path = os.environ.get('TTN_CA_CERT_PATH', 'mqtt-ca.pem')
 
     mysql_host = os.environ.get('MYSQL_HOST', 'localhost')
@@ -171,5 +173,6 @@ if __name__ == "__main__":
 
     #test_message(db)
 
-    mqtt_connect(db=db, app_eui=app_eui, access_key=access_key, host=ttn_host, ca_cert_path=ca_cert_path)
+    mqtt_connect(db=db, app_id=app_id, access_key=access_key, host=ttn_host, ca_cert_path=ca_cert_path)
 
+# vim: set sw=4 sts=4 expandtab:
