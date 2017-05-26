@@ -11,6 +11,7 @@ import ssl
 import struct
 import MySQLdb
 import re
+import bitstring
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -26,13 +27,13 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe('+/devices/+/up')
 
 def on_message(client, userdata, msg):
-    logging.debug('Received message {}'.format(str(msg.payload)))
+    #logging.debug('Received message {}'.format(str(msg.payload)))
     db = userdata['db']
 
     try:
         msg_as_string = msg.payload.decode('utf8')
-        now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-        message_id = execute_query(db, "INSERT INTO sensors_message SET timestamp = %s, message = %s", (now, msg_as_string))
+        #now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        #message_id = execute_query(db, "INSERT INTO sensors_message SET timestamp = %s, message = %s", (now, msg_as_string))
 
         message_payload = json.loads(msg_as_string)
         payload = base64.b64decode(message_payload.get('payload_raw', ''))
@@ -42,7 +43,7 @@ def on_message(client, userdata, msg):
         logging.warn(e)
 
     try:
-        process_data(db, message_id, message_payload, payload)
+        process_data(db, message_payload, payload)
     except Exception as e:
         logging.warn('Error processing packet')
         logging.warn(e)
@@ -61,69 +62,97 @@ def execute_query(db, query, args):
     except Exception as e:
         logging.warn('Query failed: {}'.format(e))
 
-# Latitude/Longitude are packed as 3-byte fixed point
-def unpack_coord(data):
-    return struct.unpack('>i', b'\x00' + data[:3])[0] / 32768.0
-
-def process_data(db, message_id, message_payload, payload):
-    if message_payload["port"] == 10 and (len(payload) < 9 or len(payload) > 11):
+def process_data(db, message_payload, payload):
+    if message_payload["port"] == 20 and (len(payload) < 12):
         logging.warn('Invalid packet received with length {}'.format(len(payload)))
         return
 
-    if message_payload["port"] != 10:
-        logging.warn('Ignoring message with unknown port: {}'.format(message_payload["port"]))
+    if message_payload["port"] != 20:
+        #logging.warn('Ignoring message with unknown port: {}'.format(message_payload["port"]))
         return
 
-    data = {}
-    data['latitude'] = unpack_coord(payload[:3])
-    data['longitude'] =unpack_coord(payload[3:6])
-    data['temperature'] = (struct.unpack('>h', payload[6:8])[0] >> 4) / 16.0
-    data['humidity'] = (struct.unpack('>h', payload[7:9])[0] & 0xFFF) / 16.0
-    if message_payload["port"] == 10:
-        if len(payload) >= 10:
-            data['supply'] = 1 + struct.unpack('B', payload[9])[0] / 100.0
-        else:
-            data['supply'] = None
+    # TODO: Preserve full id?
+    station_id = str(int(message_payload['hardware_serial'], 16))
+    now = datetime.datetime.utcnow()
 
-        if len(payload) >= 11:
-            data['battery'] = 1 + struct.unpack('B', payload[10])[0] / 50.0
-        else:
-            data['battery'] = None
+    stream = bitstring.ConstBitStream(bytes=payload)
+    time_diff_size, gps_diff_size, sensor_diff_size = stream.readlist('uint:4, uint:4, uint:4')
+    print('diff sizes: time={}, pos={}, sensor={}'.format(time_diff_size, gps_diff_size, sensor_diff_size))
+    lat, lon, temp, humid, vcc = stream.readlist('int:24, int:24, int:12, uint:12, uint:8')
+    print('first measurement: lat={}, lon={}, temp={}, humid={}, vcc={}'.format(lat, lon, temp, humid, vcc))
+    store_data(station_id, now, lat, lon, temp, humid, vcc)
 
-    query = """INSERT INTO `sensors_measurement` SET 
+    while True:
+        try:
+            dtime, dlat, dlon, dtemp, dhumid = stream.readlist('uint:{0}, int:{1}, int:{1}, int:{2}, int:{2}'.format(time_diff_size, gps_diff_size, sensor_diff_size))
+        except bitstring.ReadError as e:
+            # End of packet reached
+            break
+
+        print('next measurement: dtime={}, dlat={}, dlon={}, dtemp={}, dhumid={}'.format(dtime, dlat, dlon, dtemp, dhumid))
+        lat -= dlat
+        lon -= dlon
+        temp -= dtemp
+        humid -= dhumid
+        # dtime is sent in multiples of 1024ms
+        now -= datetime.timedelta(milliseconds = dtime * 1024)
+        store_data(station_id, now, lat, lon, temp, humid, None)
+
+def store_data(station_id, time, lat, lon, temp, humid, vcc):
+    time_fmt = '%Y-%m-%d %H:%M:%S'
+
+    # Convert fixed-point values to floating point
+    lat /= 32768.0
+    lon /= 32767.0
+    temp /= 16.0
+    humid /= 16.0
+    if vcc is not None:
+        vcc = 1 + vcc / 100.0
+
+    # Check if this measurement isn't already present, by checking for
+    # measurements with (nearly) identical timestamps.
+    query = """SELECT EXISTS (SELECT 1 FROM `slam_measurement` WHERE 
+               `station_id` = %s AND
+               `timestamp` > %s AND
+               `timestamp` < %s)
+            """
+    args = (station_id,
+            (time - datetime.timedelta(seconds = 3)).strftime(time_fmt),
+            (time + datetime.timedelta(seconds = 3)).strftime(time_fmt),
+           )
+
+    # Check if the connection is alive, reconnect if needed
+    logging.debug("Executing query: {} with args: {}".format(query, args))
+    db.ping(True)
+    cursor = db.cursor()
+    cursor.execute(query, args)
+    exists = cursor.fetchone()[0]
+    cursor.close()
+
+    if exists:
+        print("Measurement already exists, skipping");
+        return
+
+    query = """INSERT INTO `slam_measurement` SET 
                `station_id` = %s,
-               `message_id` = %s,
                `timestamp` = %s,
                `latitude` = %s,
                `longitude` = %s,
                `temperature` = %s,
                `humidity` = %s,
-               `battery` = %s,
                `supply` = %s
             """
 
-    # TODO: Preserve full id?
-    station_id = str(int(message_payload['hardware_serial'], 16))
-    now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-
     args = (station_id,
-            message_id,
-            now,
-            data['latitude'],
-            data['longitude'],
-            data['temperature'],
-            data['humidity'],
-            data['battery'],
-            data['supply'],
+            time.strftime(time_fmt),
+            lat,
+            lon,
+            temp,
+            humid,
+            vcc
            )
 
     measurement_id = execute_query(db, query, args)
-
-    # Record most recent measurement in sensors_station table
-    query = """INSERT INTO `sensors_station` (`id`, `last_measurement`, `last_timestamp`) VALUES (%s, %s, %s)
-               ON DUPLICATE KEY UPDATE `last_measurement` = %s, `last_timestamp` = %s"""
-    args = (station_id, measurement_id, now, measurement_id, now)
-    execute_query(db, query, args)
 
 def mqtt_connect(db, app_id=None, access_key=None, ca_cert_path=None, host=None):
     client = mqtt.Client(userdata={'db': db})
@@ -148,11 +177,6 @@ def mqtt_connect(db, app_id=None, access_key=None, ca_cert_path=None, host=None)
     logging.info('Connecting to {} on port {}'.format(host, port))
     client.connect(host, port=port)
     client.loop_forever()
-
-def test_message(db):
-    msg = mqtt.MQTTMessage()
-    msg.payload = """{"app_id":"meet-je-stad","dev_id":"50","hardware_serial":"0000000000000032","port":10,"counter":0,"is_retry":true,"payload_raw":"AAAAAAAAEZP4580=","metadata":{"time":"2017-03-21T10:42:18.464710851Z","frequency":867.1,"modulation":"LORA","data_rate":"SF9BW125","coding_rate":"4/5","gateways":[{"gtw_id":"eui-1dee0b64b020eec4","timestamp":1862821700,"time":"","channel":3,"rssi":-120,"snr":-8.2},{"gtw_id":"eui-1dee1cc11cba7539","timestamp":3425054892,"time":"","channel":3,"rssi":-97,"snr":12.8},{"gtw_id":"eui-1dee18fc1c9d19d8","timestamp":2278897900,"time":"","channel":3,"rssi":-23,"snr":13.5}]}}"""
-    on_message(None, {'db': db}, msg)
 
 if __name__ == "__main__":
     app_id = os.environ.get('TTN_APP_ID')
