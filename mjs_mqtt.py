@@ -65,12 +65,13 @@ def execute_query(db, query, args):
 def process_data(db, message_id, message_payload, payload):
     stream = bitstring.ConstBitStream(bytes=payload)
 
-    if message_payload["port"] == 10 and (len(payload) < 9 or len(payload) > 11):
-        logging.warn('Invalid packet received with length {}'.format(len(payload)))
-        return
-
-    if message_payload["port"] != 10:
-        logging.warn('Ignoring message with unknown port: {}'.format(message_payload["port"]))
+    port = message_payload["port"]
+    if port == 10:
+        if len(payload) < 9 or len(payload) > 11:
+            logging.warn('Invalid packet received on port {} with length {}'.format(port, len(payload)))
+            return
+    else:
+        logging.warn('Ignoring message with unknown port: {}'.format(port))
         return
 
     data = {}
