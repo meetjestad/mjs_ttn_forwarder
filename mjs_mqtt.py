@@ -8,9 +8,9 @@ import os
 import paho.mqtt.client as mqtt
 import requests
 import ssl
-import struct
 import MySQLdb
 import re
+import bitstring
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -62,11 +62,9 @@ def execute_query(db, query, args):
     except Exception as e:
         logging.warn('Query failed: {}'.format(e))
 
-# Latitude/Longitude are packed as 3-byte fixed point
-def unpack_coord(data):
-    return struct.unpack('>i', b'\x00' + data[:3])[0] / 32768.0
-
 def process_data(db, message_id, message_payload, payload):
+    stream = bitstring.ConstBitStream(bytes=payload)
+
     if message_payload["port"] == 10 and (len(payload) < 9 or len(payload) > 11):
         logging.warn('Invalid packet received with length {}'.format(len(payload)))
         return
@@ -76,20 +74,20 @@ def process_data(db, message_id, message_payload, payload):
         return
 
     data = {}
-    data['latitude'] = unpack_coord(payload[:3])
-    data['longitude'] =unpack_coord(payload[3:6])
-    data['temperature'] = (struct.unpack('>h', payload[6:8])[0] >> 4) / 16.0
-    data['humidity'] = (struct.unpack('>h', payload[7:9])[0] & 0xFFF) / 16.0
-    if message_payload["port"] == 10:
-        if len(payload) >= 10:
-            data['supply'] = 1 + struct.unpack('B', payload[9])[0] / 100.0
-        else:
-            data['supply'] = None
+    data['latitude'] = stream.read('int:24') / 32768.0
+    data['longitude'] = stream.read('int:24') / 32768.0
+    data['temperature'] = stream.read('int:12') / 16.0
+    data['humidity'] = stream.read('int:12') / 16.0
 
-        if len(payload) >= 11:
-            data['battery'] = 1 + struct.unpack('B', payload[10])[0] / 50.0
-        else:
-            data['battery'] = None
+    if len(stream) - stream.bitpos >= 8:
+        data['supply'] = 1 + stream.read('uint:8') / 100.0
+    else:
+        data['supply'] = None
+
+    if len(stream) - stream.bitpos >= 8:
+        data['battery'] = 1 + stream.read('uint:8') / 50.0
+    else:
+        data['battery'] = None
 
     query = """INSERT INTO `sensors_measurement` SET 
                `station_id` = %s,
