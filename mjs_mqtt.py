@@ -41,6 +41,7 @@ def on_message(client, userdata, msg):
     except Exception as e:
         logging.warn('Error parsing JSON payload')
         logging.warn(e)
+        return
 
     try:
         process_data(db, message_payload, payload)
