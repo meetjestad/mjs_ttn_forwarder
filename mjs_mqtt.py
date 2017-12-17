@@ -70,11 +70,21 @@ def process_data(db, message_id, message_payload, payload):
         if len(payload) < 9 or len(payload) > 11:
             logging.warn('Invalid packet received on port {} with length {}'.format(port, len(payload)))
             return
+    elif port == 11:
+        if len(payload) < 11 or len(payload) > 12:
+            logging.warn('Invalid packet received on port {} with length {}'.format(port, len(payload)))
+            return
     else:
         logging.warn('Ignoring message with unknown port: {}'.format(port))
         return
 
     data = {}
+
+    if port == 10:
+        data['firmware_version'] = None
+    else:
+        data['firmware_version'] = stream.read('uint:8')
+
     data['latitude'] = stream.read('int:24') / 32768.0
     data['longitude'] = stream.read('int:24') / 32768.0
     data['temperature'] = stream.read('int:12') / 16.0
@@ -99,7 +109,8 @@ def process_data(db, message_id, message_payload, payload):
                `temperature` = %s,
                `humidity` = %s,
                `battery` = %s,
-               `supply` = %s
+               `supply` = %s,
+               `firmware_version` = %s
             """
 
     # TODO: Preserve full id?
@@ -115,6 +126,7 @@ def process_data(db, message_id, message_payload, payload):
             data['humidity'],
             data['battery'],
             data['supply'],
+            data['firmware_version'],
            )
 
     measurement_id = execute_query(db, query, args)
