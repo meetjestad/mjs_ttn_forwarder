@@ -53,6 +53,7 @@ def execute_query(db, query, args):
 
     try:
         # Check if the connection is alive, reconnect if needed
+        #print(query % args);
         db.ping(True)
         cursor = db.cursor()
         cursor.execute(query, args)
@@ -74,6 +75,10 @@ def process_data(db, message_id, message_payload, payload):
         if len(payload) < 11 or len(payload) > 12:
             logging.warn('Invalid packet received on port {} with length {}'.format(port, len(payload)))
             return
+    elif port == 12:
+        if len(payload) < 13 or len(payload) > 14:
+            logging.warn('Invalid packet received on port {} with length {}'.format(port, len(payload)))
+            return
     else:
         logging.warn('Ignoring message with unknown port: {}'.format(port))
         return
@@ -82,8 +87,13 @@ def process_data(db, message_id, message_payload, payload):
 
     if port == 10:
         data['firmware_version'] = None
-    else:
+    elif port == 11:
         data['firmware_version'] = stream.read('uint:8')
+    elif port == 12:
+        data['firmware_version'] = stream.read('uint:8')
+    else:
+        logging.error("incorrect port {}".format(port));
+        return;
 
     data['latitude'] = stream.read('int:24') / 32768.0
     data['longitude'] = stream.read('int:24') / 32768.0
@@ -94,6 +104,11 @@ def process_data(db, message_id, message_payload, payload):
         data['supply'] = 1 + stream.read('uint:8') / 100.0
     else:
         data['supply'] = None
+
+    if len(stream) - stream.bitpos >= 16:
+        data['lux'] = stream.read('uint:16')
+    else:
+        data['lux'] = None
 
     if len(stream) - stream.bitpos >= 8:
         data['battery'] = 1 + stream.read('uint:8') / 50.0
@@ -110,6 +125,7 @@ def process_data(db, message_id, message_payload, payload):
                `humidity` = %s,
                `battery` = %s,
                `supply` = %s,
+               `lux` = %s,
                `firmware_version` = %s
             """
 
@@ -126,6 +142,7 @@ def process_data(db, message_id, message_payload, payload):
             data['humidity'],
             data['battery'],
             data['supply'],
+            data['lux'],
             data['firmware_version'],
            )
 
