@@ -94,12 +94,12 @@ def process_data(db, message_id, message_payload, payload):
     data['temperature'] = stream.read('int:12') / 16.0
     data['humidity'] = stream.read('int:12') / 16.0
 
-    if len(stream) - stream.bitpos >= 8:
+    if port >= 11 or len(stream) - stream.bitpos >= 8:
         data['supply'] = 1 + stream.read('uint:8') / 100.0
     else:
         data['supply'] = None
 
-    if len(stream) - stream.bitpos >= 16:
+    if port == 12:
         data['lux'] = stream.read('uint:16')
     else:
         data['lux'] = None
