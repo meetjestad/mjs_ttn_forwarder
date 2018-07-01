@@ -53,7 +53,6 @@ def execute_query(db, query, args):
 
     try:
         # Check if the connection is alive, reconnect if needed
-        #print(query % args);
         db.ping(True)
         cursor = db.cursor()
         cursor.execute(query, args)
@@ -87,13 +86,8 @@ def process_data(db, message_id, message_payload, payload):
 
     if port == 10:
         data['firmware_version'] = None
-    elif port == 11:
-        data['firmware_version'] = stream.read('uint:8')
-    elif port == 12:
-        data['firmware_version'] = stream.read('uint:8')
     else:
-        logging.error("incorrect port {}".format(port));
-        return;
+        data['firmware_version'] = stream.read('uint:8')
 
     data['latitude'] = stream.read('int:24') / 32768.0
     data['longitude'] = stream.read('int:24') / 32768.0
