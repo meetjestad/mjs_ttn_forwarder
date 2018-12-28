@@ -73,13 +73,15 @@ def process_data(db, message_id, message_payload, payload):
             logging.warn('Invalid packet received on port {} with length {}'.format(port, l))
             return
     elif port == 11:
-        # Packet without lux, with or without 1 byte battery measurement
-        if l < 11 or l > 12:
+        # Packet without lux, with or without 1 byte battery measurement, with
+        # or without 4-byte particulate matter
+        if l < 11 or l > 12 and l < 15 or l > 16:
             logging.warn('Invalid packet received on port {} with length {}'.format(port, l))
             return
     elif port == 12:
-        # Packet with lux, with or without 1 byte battery measurement
-        if l < 13 or l > 14:
+        # Packet with 2-byte lux, with or without 1 byte battery measurement, with or
+        # without 4-byte particulate matter
+        if l < 13 or l > 14 and l < 17 or l > 18:
             logging.warn('Invalid packet received on port {} with length {}'.format(port, l))
             return
     else:
@@ -108,6 +110,13 @@ def process_data(db, message_id, message_payload, payload):
     else:
         data['lux'] = None
 
+    if len(stream) - stream.bitpos >= 32:
+        data['pm2_5'] = stream.read('uint:16')
+        data['pm10'] = stream.read('uint:16')
+    else:
+        data['pm2_5'] = None
+        data['pm10'] = None
+
     if len(stream) - stream.bitpos >= 8:
         data['battery'] = 1 + stream.read('uint:8') / 50.0
     else:
@@ -124,6 +133,8 @@ def process_data(db, message_id, message_payload, payload):
                `battery` = %s,
                `supply` = %s,
                `lux` = %s,
+               `pm2_5` = %s,
+               `pm10` = %s,
                `firmware_version` = %s
             """
 
@@ -141,6 +152,8 @@ def process_data(db, message_id, message_payload, payload):
             data['battery'],
             data['supply'],
             data['lux'],
+            data['pm2_5'],
+            data['pm10'],
             data['firmware_version'],
            )
 
