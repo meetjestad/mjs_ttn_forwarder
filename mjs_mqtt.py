@@ -66,17 +66,21 @@ def process_data(db, message_id, message_payload, payload):
     stream = bitstring.ConstBitStream(bytes=payload)
 
     port = message_payload["port"]
+    l = len(payload)
     if port == 10:
-        if len(payload) < 9 or len(payload) > 11:
-            logging.warn('Invalid packet received on port {} with length {}'.format(port, len(payload)))
+        # Legacy packet
+        if l < 9 or l > 11:
+            logging.warn('Invalid packet received on port {} with length {}'.format(port, l))
             return
     elif port == 11:
-        if len(payload) < 11 or len(payload) > 12:
-            logging.warn('Invalid packet received on port {} with length {}'.format(port, len(payload)))
+        # Packet without lux, with or without 1 byte battery measurement
+        if l < 11 or l > 12:
+            logging.warn('Invalid packet received on port {} with length {}'.format(port, l))
             return
     elif port == 12:
-        if len(payload) < 13 or len(payload) > 14:
-            logging.warn('Invalid packet received on port {} with length {}'.format(port, len(payload)))
+        # Packet with lux, with or without 1 byte battery measurement
+        if l < 13 or l > 14:
+            logging.warn('Invalid packet received on port {} with length {}'.format(port, l))
             return
     else:
         logging.warn('Ignoring message with unknown port: {}'.format(port))
