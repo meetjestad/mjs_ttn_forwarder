@@ -38,15 +38,15 @@ def on_message(client, userdata, msg):
         payload = base64.b64decode(message_payload.get('payload_raw', ''))
     # python2 uses ValueError and perhaps others, python3 uses JSONDecodeError
     except Exception as e:
-        logging.warn('Error parsing JSON payload')
-        logging.warn(e)
+        logging.warning('Error parsing JSON payload')
+        logging.warning(e)
         return
 
     try:
         process_data(db, message_id, message_payload, payload)
     except Exception as e:
-        logging.warn('Error processing packet')
-        logging.warn(e)
+        logging.warning('Error processing packet')
+        logging.warning(e)
 
 def execute_query(db, query, args):
     logging.debug("Executing query: {} with args: {}".format(query, args))
@@ -60,7 +60,7 @@ def execute_query(db, query, args):
         db.commit()
         return cursor.lastrowid
     except Exception as e:
-        logging.warn('Query failed: {}'.format(e))
+        logging.warning('Query failed: {}'.format(e))
 
 def process_data(db, message_id, message_payload, payload):
     stream = bitstring.ConstBitStream(bytes=payload)
@@ -70,22 +70,22 @@ def process_data(db, message_id, message_payload, payload):
     if port == 10:
         # Legacy packet
         if l < 9 or l > 11:
-            logging.warn('Invalid packet received on port {} with length {}'.format(port, l))
+            logging.warning('Invalid packet received on port {} with length {}'.format(port, l))
             return
     elif port == 11:
         # Packet without lux, with or without 1 byte battery measurement, with
         # or without 4-byte particulate matter
         if l < 11 or l > 12 and l < 15 or l > 16:
-            logging.warn('Invalid packet received on port {} with length {}'.format(port, l))
+            logging.warning('Invalid packet received on port {} with length {}'.format(port, l))
             return
     elif port == 12:
         # Packet with 2-byte lux, with or without 1 byte battery measurement, with or
         # without 4-byte particulate matter
         if l < 13 or l > 14 and l < 17 or l > 18:
-            logging.warn('Invalid packet received on port {} with length {}'.format(port, l))
+            logging.warning('Invalid packet received on port {} with length {}'.format(port, l))
             return
     else:
-        logging.warn('Ignoring message with unknown port: {}'.format(port))
+        logging.warning('Ignoring message with unknown port: {}'.format(port))
         return
 
     data = {}
@@ -175,7 +175,7 @@ def mqtt_connect(db, app_id=None, access_key=None, ca_cert_path=None, host=None)
     if app_id is not None and access_key is not None:
         client.username_pw_set(app_id, password=access_key)
     else:
-        logging.warn('No App ID or Access key set')
+        logging.warning('No App ID or Access key set')
 
     if ca_cert_path:
         if not os.path.exists(ca_cert_path):
