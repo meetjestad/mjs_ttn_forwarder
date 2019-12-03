@@ -19,12 +19,21 @@ To use it, create a "start" script with the following contents.
 	python mjs_mqtt.py "$@"
 
 Fill in the TTN access key and mysql password, and don't forget to set it as
-executable.
+executable. Then run `./start -v` to start the forwarder in the
+foreground and with verbose output.
 
 Dependencies
 ------------
 This needs the following dependencies:
 
-	pip install paho-mqtt requests
+	pip install paho-mqtt requests mysqlclient bitstring
 
-(Run under sudo to install system-wide)
+(Run under sudo to install system-wide, with `--user` to install just
+for this user, or inside a virtualenv)
+
+The mysqlclient package requires development header files for
+libmysqlclient to be installed. On Debian-based Linux systems, this is a
+matter of `sudo apt-get install python-dev default-libmysqlclient-dev`.
+On Windows, this might be automatically handled using precompiled
+binaries.  See also [the mysqlclient
+documentation](https://pypi.org/project/mysqlclient/).
