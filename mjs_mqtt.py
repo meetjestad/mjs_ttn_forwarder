@@ -195,7 +195,7 @@ def process_data(db, message_id, message_payload, payload):
     else:
         data['extra'] = None
 
-    query = """INSERT INTO `sensors_measurement` SET 
+    query = """INSERT INTO `sensors_measurement` SET
                `station_id` = %s,
                `message_id` = %s,
                `timestamp` = %s,
