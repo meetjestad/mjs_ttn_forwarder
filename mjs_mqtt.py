@@ -67,21 +67,57 @@ def process_data(db, message_id, message_payload, payload):
 
     port = message_payload["port"]
     l = len(payload)
+    have_supply = False
+    have_battery = False
+    have_firmware = False
+    have_lux = False
+    have_pm = False
     if port == 10:
-        # Legacy packet
-        if l < 9 or l > 11:
+        # Legacy packet without firmware_version, with or without supply
+        # and battery
+        if l == 9:
+            pass
+        elif l == 10:
+            have_supply = True
+        elif l == 11:
+            have_supply = True
+            have_battery = True
+        else:
             logging.warning('Invalid packet received on port {} with length {}'.format(port, l))
             return
     elif port == 11:
         # Packet without lux, with or without 1 byte battery measurement, with
         # or without 4-byte particulate matter
-        if l < 11 or l > 12 and l < 15 or l > 16:
+        have_firmware = True
+        have_supply = True
+        if l == 11:
+            pass
+        elif l == 12:
+            have_battery = True
+        elif l == 15:
+            have_pm = True
+        elif l == 16:
+            have_battery = True
+            have_pm = True
+        else:
             logging.warning('Invalid packet received on port {} with length {}'.format(port, l))
             return
     elif port == 12:
         # Packet with 2-byte lux, with or without 1 byte battery measurement, with or
         # without 4-byte particulate matter
-        if l < 13 or l > 14 and l < 17 or l > 18:
+        have_firmware = True
+        have_supply = True
+        have_lux = True
+        if l == 13:
+            pass
+        elif l == 14:
+            have_battery = True
+        elif l == 17:
+            have_pm = True
+        elif l == 18:
+            have_battery = True
+            have_pm = True
+        else:
             logging.warning('Invalid packet received on port {} with length {}'.format(port, l))
             return
     else:
@@ -90,34 +126,34 @@ def process_data(db, message_id, message_payload, payload):
 
     data = {}
 
-    if port == 10:
-        data['firmware_version'] = None
-    else:
+    if have_firmware:
         data['firmware_version'] = stream.read('uint:8')
+    else:
+        data['firmware_version'] = None
 
     data['latitude'] = stream.read('int:24') / 32768.0
     data['longitude'] = stream.read('int:24') / 32768.0
     data['temperature'] = stream.read('int:12') / 16.0
     data['humidity'] = stream.read('int:12') / 16.0
 
-    if port >= 11 or len(stream) - stream.bitpos >= 8:
+    if have_supply:
         data['supply'] = 1 + stream.read('uint:8') / 100.0
     else:
         data['supply'] = None
 
-    if port == 12:
+    if have_lux:
         data['lux'] = stream.read('uint:16')
     else:
         data['lux'] = None
 
-    if len(stream) - stream.bitpos >= 32:
+    if have_pm:
         data['pm2_5'] = stream.read('uint:16')
         data['pm10'] = stream.read('uint:16')
     else:
         data['pm2_5'] = None
         data['pm10'] = None
 
-    if len(stream) - stream.bitpos >= 8:
+    if have_battery:
         data['battery'] = 1 + stream.read('uint:8') / 50.0
     else:
         data['battery'] = None
