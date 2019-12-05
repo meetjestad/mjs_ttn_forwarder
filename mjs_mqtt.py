@@ -72,6 +72,7 @@ def process_data(db, message_id, message_payload, payload):
     have_firmware = False
     have_lux = False
     have_pm = False
+    have_extra = False
     if port == 10:
         # Legacy packet without firmware_version, with or without supply
         # and battery
@@ -120,6 +121,18 @@ def process_data(db, message_id, message_payload, payload):
         else:
             logging.warning('Invalid packet received on port {} with length {}'.format(port, l))
             return
+    elif port == 13:
+        # Packet starting with a flag byte that indicates which of the
+        # optional values are present.
+        have_firmware = True
+        have_supply = True
+        have_lux = True
+        have_lux = stream.read('bool:1')
+        have_pm = stream.read('bool:1')
+        have_battery = stream.read('bool:1')
+        # 4 bits unused
+        stream.read('uint:4')
+        have_extra = stream.read('bool:1')
     else:
         logging.warning('Ignoring message with unknown port: {}'.format(port))
         return
@@ -158,6 +171,30 @@ def process_data(db, message_id, message_payload, payload):
     else:
         data['battery'] = None
 
+    if have_extra:
+        # Extra values are ecoded as pairs of size and value, where size
+        # is always 6 bits and the value is size+1 bits long.
+        extra_value = ""
+        while stream.bitpos < len(stream):
+            if len(stream) - stream.bitpos < 5:
+                # This can happen due to rounding to whole bytes
+                break
+            # Add 1 to allow 1-32 bits rather than 0-31
+            bits = stream.read('uint:5') + 1
+            if len(stream) - stream.bitpos < bits:
+                # This can happen due to rounding to whole bytes, in
+                # which case the bits should be all-ones
+                break
+            value = stream.read(bits).uint
+            # Just store extra values as a comma-separated string
+            if extra_value:
+                extra_value += ","
+            extra_value += str(value)
+
+        data['extra'] = extra_value
+    else:
+        data['extra'] = None
+
     query = """INSERT INTO `sensors_measurement` SET 
                `station_id` = %s,
                `message_id` = %s,
@@ -171,7 +208,8 @@ def process_data(db, message_id, message_payload, payload):
                `lux` = %s,
                `pm2_5` = %s,
                `pm10` = %s,
-               `firmware_version` = %s
+               `firmware_version` = %s,
+               `extra` = %s
             """
 
     # TODO: Preserve full id?
@@ -191,6 +229,7 @@ def process_data(db, message_id, message_payload, payload):
             data['pm2_5'],
             data['pm10'],
             data['firmware_version'],
+            data['extra'],
            )
 
     measurement_id = execute_query(db, query, args)
