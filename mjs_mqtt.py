@@ -73,6 +73,7 @@ def process_data(db, message_id, message_payload, payload):
     have_lux = False
     have_pm = False
     have_extra = False
+    lux_scale_bits = 0
     if port == 10:
         # Legacy packet without firmware_version, with or without supply
         # and battery
@@ -133,6 +134,8 @@ def process_data(db, message_id, message_payload, payload):
         # 4 bits unused
         stream.read('uint:4')
         have_extra = stream.read('bool:1')
+        # In this packet, the lux is scaled to allow larger values
+        lux_scale_bits = 2
     else:
         logging.warning('Ignoring message with unknown port: {}'.format(port))
         return
@@ -155,7 +158,7 @@ def process_data(db, message_id, message_payload, payload):
         data['supply'] = None
 
     if have_lux:
-        data['lux'] = stream.read('uint:16')
+        data['lux'] = stream.read('uint:16') << lux_scale_bits
     else:
         data['lux'] = None
 
