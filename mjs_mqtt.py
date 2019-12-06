@@ -128,12 +128,12 @@ def process_data(db, message_id, message_payload, payload):
         have_firmware = True
         have_supply = True
         have_lux = True
-        have_lux = stream.read('bool:1')
-        have_pm = stream.read('bool:1')
-        have_battery = stream.read('bool:1')
+        have_lux = stream.read('bool')
+        have_pm = stream.read('bool')
+        have_battery = stream.read('bool')
         # 4 bits unused
         stream.read('uint:4')
-        have_extra = stream.read('bool:1')
+        have_extra = stream.read('bool')
         # In this packet, the lux is scaled to allow larger values
         lux_scale_bits = 2
     else:
