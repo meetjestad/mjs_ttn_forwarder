@@ -37,3 +37,10 @@ matter of `sudo apt-get install python-dev default-libmysqlclient-dev`.
 On Windows, this might be automatically handled using precompiled
 binaries.  See also [the mysqlclient
 documentation](https://pypi.org/project/mysqlclient/).
+
+Database setup
+--------------
+To work, this forwarder needs a mysql database to store data in. For the
+schema, and a script to set it up, see the [website repository][1].
+
+[1]: https://github.com/meetjestad/website/
