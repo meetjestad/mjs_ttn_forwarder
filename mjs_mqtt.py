@@ -21,11 +21,11 @@ parser.add_argument(
     '-v', '--verbose', action="store_const", dest="loglevel", const=logging.INFO,
 )
 
-SOURCE = 'ttn.v2'
+SOURCE = 'ttn.v3'
 
 def on_connect(client, userdata, flags, rc):
     logging.info('Connected to host, subscribing to uplink messages')
-    client.subscribe('+/devices/+/up')
+    client.subscribe('v3/+/devices/+/up')
 
 def on_message(client, userdata, msg):
     logging.debug('Received message {}'.format(str(msg.payload)))
@@ -37,7 +37,11 @@ def on_message(client, userdata, msg):
         message_id = execute_query(db, "INSERT INTO sensors_message SET timestamp = %s, message = %s, source = %s", (now, msg_as_string, SOURCE))
 
         message_payload = json.loads(msg_as_string)
-        payload = base64.b64decode(message_payload.get('payload_raw', ''))
+        raw_payload = base64.b64decode(message_payload.get('uplink_message').get('frm_payload', ''))
+        port = message_payload["uplink_message"]["f_port"]
+        # TODO: Preserve full id?
+        station_id = str(int(message_payload["end_device_ids"]["dev_eui"], 16))
+
     # python2 uses ValueError and perhaps others, python3 uses JSONDecodeError
     except Exception as e:
         logging.warning('Error parsing JSON payload')
@@ -45,7 +49,7 @@ def on_message(client, userdata, msg):
         return
 
     try:
-        process_data(db, message_id, message_payload, payload)
+        process_data(db, message_id, station_id, port, raw_payload)
     except Exception as e:
         logging.warning('Error processing packet')
         logging.warning(e)
@@ -64,11 +68,10 @@ def execute_query(db, query, args):
     except Exception as e:
         logging.warning('Query failed: {}'.format(e))
 
-def process_data(db, message_id, message_payload, payload):
-    stream = bitstring.ConstBitStream(bytes=payload)
+def process_data(db, message_id, station_id, port, raw_payload):
+    stream = bitstring.ConstBitStream(bytes=raw_payload)
 
-    port = message_payload["port"]
-    l = len(payload)
+    l = len(raw_payload)
     have_supply = False
     have_battery = False
     have_firmware = False
@@ -217,8 +220,6 @@ def process_data(db, message_id, message_payload, payload):
                `extra` = %s
             """
 
-    # TODO: Preserve full id?
-    station_id = str(int(message_payload['hardware_serial'], 16))
     now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
 
     args = (station_id,
@@ -277,7 +278,7 @@ def test_message(db):
 if __name__ == "__main__":
     app_id = os.environ.get('TTN_APP_ID')
     access_key = os.environ.get('TTN_ACCESS_KEY')
-    ttn_host = os.environ.get('TTN_HOST', 'eu.thethings.network')
+    ttn_host = os.environ.get('TTN_HOST', 'eu1.cloud.thethings.network')
     ca_cert_path = os.environ.get('TTN_CA_CERT_PATH', 'mqtt-ca.pem')
 
     mysql_host = os.environ.get('MYSQL_HOST', 'localhost')
