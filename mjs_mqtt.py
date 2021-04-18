@@ -21,6 +21,8 @@ parser.add_argument(
     '-v', '--verbose', action="store_const", dest="loglevel", const=logging.INFO,
 )
 
+SOURCE = 'ttn.v2'
+
 def on_connect(client, userdata, flags, rc):
     logging.info('Connected to host, subscribing to uplink messages')
     client.subscribe('+/devices/+/up')
@@ -32,7 +34,7 @@ def on_message(client, userdata, msg):
     try:
         msg_as_string = msg.payload.decode('utf8')
         now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-        message_id = execute_query(db, "INSERT INTO sensors_message SET timestamp = %s, message = %s", (now, msg_as_string))
+        message_id = execute_query(db, "INSERT INTO sensors_message SET timestamp = %s, message = %s, source = %s", (now, msg_as_string, SOURCE))
 
         message_payload = json.loads(msg_as_string)
         payload = base64.b64decode(message_payload.get('payload_raw', ''))
