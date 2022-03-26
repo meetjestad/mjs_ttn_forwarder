@@ -22,9 +22,11 @@ parser.add_argument(
     '-v', '--verbose', action="store_const", dest="loglevel", const=logging.INFO,
 )
 
+SOURCE = 'ttn.v3'
+
 def on_connect(client, userdata, flags, rc):
     logging.info('Connected to host, subscribing to uplink messages')
-    client.subscribe('+/devices/+/up')
+    client.subscribe('v3/+/devices/+/up')
 
 def on_message(client, userdata, msg):
     #logging.debug('Received message {}'.format(str(msg.payload)))
@@ -33,10 +35,14 @@ def on_message(client, userdata, msg):
     try:
         msg_as_string = msg.payload.decode('utf8')
         #now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-        #message_id = execute_query(db, "INSERT INTO sensors_message SET timestamp = %s, message = %s", (now, msg_as_string))
+        #message_id = execute_query(db, "INSERT INTO sensors_message SET timestamp = %s, message = %s, source = %s", (now, msg_as_string, SOURCE))
 
         message_payload = json.loads(msg_as_string)
-        payload = base64.b64decode(message_payload.get('payload_raw', ''))
+        raw_payload = base64.b64decode(message_payload.get('uplink_message').get('frm_payload', ''))
+        port = message_payload["uplink_message"]["f_port"]
+        # TODO: Preserve full id?
+        station_id = str(int(message_payload["end_device_ids"]["dev_eui"], 16))
+
     # python2 uses ValueError and perhaps others, python3 uses JSONDecodeError
     except Exception as e:
         logging.warn('Error parsing JSON payload')
@@ -44,7 +50,7 @@ def on_message(client, userdata, msg):
         return
 
     try:
-        process_data(db, message_payload, payload)
+        process_data(db, station_id, port, raw_payload)
     except Exception as e:
         logging.warn('Error processing packet')
         logging.warn(e)
@@ -63,20 +69,18 @@ def execute_query(db, query, args):
     except Exception as e:
         logging.warn('Query failed: {}'.format(e))
 
-def process_data(db, message_payload, payload):
-    if message_payload["port"] == 20 and (len(payload) < 12):
-        logging.warn('Invalid packet received with length {}'.format(len(payload)))
+def process_data(db, station_id, port, raw_payload):
+    if port == 20 and (len(raw_payload) < 12):
+        logging.warn('Invalid packet received with length {}'.format(len(raw_payload)))
         return
 
-    if message_payload["port"] != 20:
-        #logging.warn('Ignoring message with unknown port: {}'.format(message_payload["port"]))
+    if port != 20:
+        #logging.warn('Ignoring message with unknown port: {}'.format(port))
         return
 
-    # TODO: Preserve full id?
-    station_id = str(int(message_payload['hardware_serial'], 16))
     now = datetime.datetime.utcnow()
 
-    stream = bitstring.ConstBitStream(bytes=payload)
+    stream = bitstring.ConstBitStream(bytes=raw_payload)
     time_diff_size, gps_diff_size, sensor_diff_size = stream.readlist('uint:4, uint:4, uint:4')
     print('diff sizes: time={}, pos={}, sensor={}'.format(time_diff_size, gps_diff_size, sensor_diff_size))
     lat, lon, temp, humid, vcc = stream.readlist('int:24, int:24, int:12, uint:12, uint:8')
@@ -182,7 +186,7 @@ def mqtt_connect(db, app_id=None, access_key=None, ca_cert_path=None, host=None)
 if __name__ == "__main__":
     app_id = os.environ.get('TTN_APP_ID')
     access_key = os.environ.get('TTN_ACCESS_KEY')
-    ttn_host = os.environ.get('TTN_HOST', 'eu.thethings.network')
+    ttn_host = os.environ.get('TTN_HOST', 'eu1.cloud.thethings.network')
     ca_cert_path = os.environ.get('TTN_CA_CERT_PATH', 'mqtt-ca.pem')
 
     mysql_host = os.environ.get('MYSQL_HOST', 'localhost')
